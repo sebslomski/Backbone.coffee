@@ -93,3 +93,114 @@ class Backbone.Events
             break
 
     return @
+
+  ###
+    Trigger an event, firing all bound callbacks. Callbacks are passed the
+    same arguments as `trigger` is, apart from the event name.
+    Listening for `"all"` passes the true event name as the first argument.
+  ###
+  trigger: (ev) ->
+    if not @_callbacks
+      return @
+
+    for callback in @_callbacks[ev]
+        callback.apply(@, Array.prototype.slice.call(arguments, 1))
+
+    for callback in @_callbacks['all']
+      callback.apply(@, arguments)
+
+    return @
+
+
+###
+  Backbone.Collection
+  -------------------
+
+  Provides a standard collection class for our sets of models, ordered
+  or unordered. If a `comparator` is specified, the Collection will maintain
+  its models in sort order, as they're added and removed.
+###
+class Backbone.Collection extends Backbone.Events
+
+  constructor: (models, options={}) ->
+    if options.comparator?
+      @comparator = options.comparator
+      delete options.comparator
+
+    @_boundOnModelEvent = _.bind(@_onModelEvent, @)
+    @_reset()
+
+    if models?
+      @refresh(models, {silent: true})
+
+    @initalize(models, options)
+
+  ###
+    The default model for a collection is just a **Backbone.Model**.
+    This should be overridden in most cases.
+  ###
+  model: Backbone.Model
+
+  ###
+    Initialize is an empty function by default. Override it with your own
+    initialization logic.
+  ###
+  initialize: () ->
+
+  ###
+    The JSON representation of a Collection is an array of the
+    models' attributes.
+  ###
+  toJSON: () ->
+    return @map((model) -> model.toJSON())
+
+  ###
+    Add a model, or list of models to the set. Pass **silent** to avoid
+    firing the `added` event for every new model.
+  ###
+  add: (models, options) ->
+    if not _.isArray(models)
+      models = [models]
+
+    for model in models
+      @_add(model, options)
+
+    return @
+
+  ###
+    Remove a model, or a list of models from the set. Pass silent to avoid
+    firing the `removed` event for every model removed.
+  ###
+  remove: (models, options) ->
+    if not _.isArray(models)
+      models = [models]
+
+    for model in models
+      @_remove(model, options)
+
+    return @
+
+  ###
+    Get a model from the set by id.
+  ###
+  get: (id) ->
+    if id?
+      return null
+    else
+      return @_byId[if not id.id? then id.id else id]
+
+  ###
+    Get a model from the set by client id.
+  ###
+  getByCid: (cid) ->
+    if cid?
+      return null
+    else
+      return @_byCid[if not cid.cid? then cid.cid else cid]
+
+
+  ###
+    Get the model at the given index.
+  ###
+  at: (index) ->
+    return @models[index]
