@@ -112,12 +112,12 @@
       if (!this._callbacks) {
         return this;
       }
-      if (this._callbacks[ev]) {
+      if (this._callbacks[ev] != null) {
         _ref = this._callbacks[ev];
         for (_i = 0, _len = _ref.length; _i < _len; _i++) {
           callback = _ref[_i];
           if (callback) {
-            callback.apply(this, Array.prototype.slice.call(options, 1));
+            callback.apply(this, options);
           }
         }
       }
@@ -125,7 +125,7 @@
         _ref2 = this._callbacks['all'];
         for (_j = 0, _len2 = _ref2.length; _j < _len2; _j++) {
           callback = _ref2[_j];
-          callback.apply(this, options);
+          callback.apply(this, arguments);
         }
       }
       return this;
@@ -203,7 +203,7 @@
       choose to silence it.
     */
     Model.prototype.set = function(attrs, options) {
-      var attr, escaped, now, val;
+      var attr, val;
       if (options == null) {
         options = {};
       }
@@ -213,8 +213,6 @@
       if (attrs.attributes != null) {
         attrs = attrs.attributes;
       }
-      now = this.attributes;
-      escaped = this._escapedAttributes;
       if (!options.silent && this.validate && !this._performValidation(attrs, options)) {
         return false;
       }
@@ -223,9 +221,9 @@
       }
       for (attr in attrs) {
         val = attrs[attr];
-        if (!_.isEqual(now[attr], val)) {
-          now[attr] = val;
-          delete escaped[attr];
+        if (!_.isEqual(this.attributes[attr], val)) {
+          this.attributes[attr] = val;
+          delete this._escapedAttributes[attr];
           if (!options.silent) {
             this._changed = true;
             this.trigger('change:' + attr, this, val, options);
@@ -483,11 +481,11 @@
       if (options == null) {
         options = {};
       }
+      this._onModelEvent = __bind(this._onModelEvent, this);;
       if (options.comparator != null) {
         this.comparator = options.comparator;
         delete options.comparator;
       }
-      this._boundOnModelEvent = _.bind(this._onModelEvent, this);
       this._reset();
       if (models) {
         this.refresh(models, {
@@ -551,7 +549,7 @@
       Get a model from the set by id.
     */
     Collection.prototype.get = function(id) {
-      if (id != null) {
+      if (!(id != null)) {
         return null;
       }
       return this._byId[id.id != null ? id.id : id];
@@ -652,7 +650,7 @@
         });
       }
       success = function(nextModel, resp) {
-        coll.add(nextModel);
+        collection.add(nextModel);
         if (options.success) {
           return options.success(nextModel, resp);
         }
@@ -709,7 +707,7 @@
       model.collection = this;
       index = this.comparator != null ? this.sortedIndex(model, this.comparator) : this.length;
       this.models.splice(index, 0, model);
-      model.bind('all', this._boundOnModelEvent);
+      model.bind('all', this._onModelEvent);
       this.length++;
       if (!options.silent) {
         model.trigger('add', model, this, options);
@@ -736,7 +734,7 @@
       if (!options.silent) {
         model.trigger('remove', model, this, options);
       }
-      model.unbind('all', this._boundOnModelEvent);
+      model.unbind('all', this._onModelEvent);
       return model;
     };
     /*
@@ -843,7 +841,7 @@
       against the current location fragment.
     */
     Controller.prototype._routeToRegExp = function(route) {
-      route = route.replace(namedParam, "([^\/]*)").replace(splatParam, "(.*?)");
+      route = route.replace(this.namedParam, "([^\/]*)").replace(this.splatParam, "(.*?)");
       return new RegExp('^' + route + '$');
     };
     /*
@@ -864,9 +862,8 @@
   */
   Backbone.History = (function() {
     function History() {
-      this.handlers = [];
+      this.checkUrl = __bind(this.checkUrl, this);;      this.handlers = [];
       this.fragment = this.getFragment();
-      _.bindAll(this, 'checkUrl');
     }
     /*
       Cached regex for cleaning hashes.
@@ -884,7 +881,7 @@
       if (loc == null) {
         loc = window.location;
       }
-      return loc.hash.replace(hashStrip, '');
+      return loc.hash.replace(this.hashStrip, '');
     };
     /*
       Start the hash change handling, returning `true` if the current URL matches
@@ -956,7 +953,7 @@
       if (fragment == null) {
         fragment = '';
       }
-      fragment = fragment.replace(hashStrip, '');
+      fragment = fragment.replace(this.hashStrip, '');
       if (this.fragment === fragment) {
         return;
       }
@@ -986,7 +983,7 @@
       against the current location fragment.
     */
     History.prototype._routeToRegExp = function(route) {
-      route = route.replace(namedParam, "([^\/]*)").replace(splatParam, "(.*?)");
+      route = route.replace(this.namedParam, "([^\/]*)").replace(this.splatParam, "(.*?)");
       return new RegExp('^' + route + '$');
     };
     /*
@@ -999,119 +996,6 @@
     return History;
   })();
   /*
-    Backbone.History
-    ----------------
-
-    Handles cross-browser history management, based on URL hashes. If the
-    browser does not support `onhashchange`, falls back to polling.
-  */
-  Backbone.History = (function() {
-    function History() {
-      this.handlers = [];
-      this.fragment = this.getFragment();
-      _.bindAll(this, 'checkUrl');
-    }
-    /*
-      Cached regex for cleaning hashes.
-    */
-    History.prototype.hashStrip = /^#*/;
-    /*
-      The default interval to poll for hash changes, if necessary, is
-      twenty times a second.
-    */
-    History.prototype.interval = 50;
-    /*
-      Get the cross-browser normalized URL fragment.
-    */
-    History.prototype.getFragment = function(loc) {
-      if (loc == null) {
-        loc = window.location;
-      }
-      return loc.hash.replace(hashStrip, '');
-    };
-    /*
-      Start the hash change handling, returning `true` if the current URL matches
-      an existing route, and `false` otherwise.
-    */
-    History.prototype.start = function() {
-      var docMode, oldIE;
-      docMode = document.documentMode;
-      oldIE = $.browser.msie && (!docMode || docMode <= 7);
-      if (oldIE) {
-        this.iframe = $('<iframe src="javascript:0" tabindex="-1" />').hide().appendTo('body')[0].contentWindow;
-      }
-      if (__indexOf.call(window, 'onhashchange') >= 0 && !oldIE) {
-        $(window).bind('hashchange', this.checkUrl);
-      } else {
-        setInterval(this.checkUrl, this.interval);
-      }
-      return this.loadUrl();
-    };
-    /*
-      Add a route to be tested when the hash changes. Routes are matched in the
-      order they are added.
-    */
-    History.prototype.route = function(route, callback) {
-      return this.handlers.push({
-        route: route,
-        callback: callback
-      });
-    };
-    /*
-      Checks the current URL to see if it has changed, and if it has,
-      calls `loadUrl`, normalizing across the hidden iframe.
-    */
-    History.prototype.checkUrl = function() {
-      var current;
-      current = this.getFragment();
-      if (current === this.fragment && this.iframe) {
-        current = this.getFragment(this.iframe.location);
-      }
-      if (current === this.fragment || current === decodeURIComponent(this.fragment)) {
-        return false;
-      }
-      if (this.iframe) {
-        window.location.hash = this.iframe.location.hash = current;
-      }
-      return this.loadUrl();
-    };
-    /*
-      Attempt to load the current URL fragment. If a route succeeds with a
-      match, returns `true`. If no defined routes matches the fragment,
-      returns `false`.
-    */
-    History.prototype.loadUrl = function() {
-      var fragment;
-      fragment = this.fragment = this.getFragment();
-      return _.any(this.handlers, function(handler) {
-        if (handler.route.test(fragment)) {
-          handler.callback(fragment);
-          return true;
-        }
-      });
-    };
-    /*
-      Save a fragment into the hash history. You are responsible for properly
-      URL-encoding the fragment in advance. This does not trigger
-      a `hashchange` event.
-    */
-    History.prototype.saveLocation = function(fragment) {
-      if (fragment == null) {
-        fragment = '';
-      }
-      fragment = fragment.replace(hashStrip, '');
-      if (this.fragment === fragment) {
-        return;
-      }
-      window.location.hash = this.fragment = fragment;
-      if (this.iframe && fragment !== this.getFragment(this.iframe.location)) {
-        this.iframe.document.open().close();
-        return this.iframe.location.hash = fragment;
-      }
-    };
-    return History;
-  })();
-  /*
     Backbone.View
     -------------
 
@@ -1119,26 +1003,22 @@
     if an existing element is not provided...
   */
   Backbone.View = (function() {
-    var selectorDelegate;
-    function View() {
-      View.__super__.constructor.apply(this, arguments);
-    }
     __extends(View, Backbone.Events);
-    View.prototype.constuctor = function(options) {
+    function View(options) {
       if (options == null) {
         options = {};
       }
       this._configure(options);
       this._ensureElement();
       this.delegateEvents();
-      return this.initialize(options);
-    };
+      this.initialize(options);
+    }
     /*
       Element lookup, scoped to DOM elements within the current view.
       This should be prefered to global lookups, if you're dealing with
       a specific view.
     */
-    selectorDelegate = function(selector) {
+    View.prototype.$ = function(selector) {
       return $(selector, this.el);
     };
     /*
@@ -1150,9 +1030,6 @@
     */
     View.prototype.tagName = 'div';
     /*
-      Attach the `selectorDelegate`  as the `$` property.
-      $       : selectorDelegate,
-
       Initialize is an empty  by default. Override it with your own
       initialization logic.
     */
@@ -1177,7 +1054,7 @@
       For small amounts of DOM Elements, where a full-blown template isn't
       needed, use **make** to manufacture elements, one at a time.
 
-            el = @make('li', {'class': 'row'}, @model.escape('title'))
+        el = @make('li', {'class': 'row'}, @model.escape('title'))
     */
     View.prototype.make = function(tagName, attributes, content) {
       var el;
@@ -1194,11 +1071,10 @@
       Set callbacks, where `@callbacks` is a hash of
 
       *{"event selector": "callback"}*
-
-          {
-            'mousedown .title':  'edit',
-            'click .button':     'save'
-          }
+        {
+          'mousedown .title':  'edit',
+          'click .button':     'save'
+        }
 
       pairs. Callbacks will be bound to the view, with `@` set properly.
       Uses event delegation for efficiency.
@@ -1218,7 +1094,7 @@
       _results = [];
       for (key in events) {
         methodName = events[key];
-        match = key.match(eventSplitter);
+        match = key.match(this.eventSplitter);
         _ref = [match[1], match[2]], eventName = _ref[0], selector = _ref[1];
         method = _.bind(this[methodName], this);
         _results.push(selector === '' ? $(this.el).bind(eventName, method) : $(this.el).delegate(selector, eventName, method));
@@ -1295,7 +1171,15 @@
   */
   Backbone.sync = (function() {
     function sync(method, model, success, error) {
-      var modelJSON, params, type;
+      /*
+        Map from CRUD to HTTP for our default `Backbone.sync` implementation.
+      */      var methodMap, modelJSON, params, type;
+      methodMap = {
+        create: 'POST',
+        update: 'PUT',
+        "delete": 'DELETE',
+        read: 'GET'
+      };
       type = methodMap[method];
       if (method === 'update' || method === 'create') {
         modelJSON = JSON.stringify(model.toJSON());
@@ -1343,15 +1227,6 @@
       */
       $.ajax(params);
     }
-    /*
-      Map from CRUD to HTTP for our default `Backbone.sync` implementation.
-    */
-    sync.prototype.methodMap = {
-      'create': 'POST',
-      'update': 'PUT',
-      'delete': 'DELETE',
-      'read': 'GET'
-    };
     return sync;
   })();
   /*
@@ -1359,7 +1234,6 @@
     -------
   */
   Backbone.Helpers = (function() {
-    var escapeHTML, wrapError;
     function Helpers() {}
     /*
       Helpers function to get a URL from a Model or Collection as a property
@@ -1367,7 +1241,7 @@
     */
     Helpers.prototype.getUrl = function(object) {
       if (!(object && object.url)) {
-        throw new Error("A 'url' property or  must be specified");
+        throw new Error("A 'url' property or @ must be specified");
       }
       if (_.isFunction(object.url)) {
         return object.url();
@@ -1378,7 +1252,7 @@
     /*
       Wrap an optional error callback with a fallback error event.
     */
-    wrapError = function(onError, model, options) {
+    Helpers.prototype.wrapError = function(onError, model, options) {
       return function(resp) {
         if (onError) {
           return onError(model, resp);
@@ -1390,8 +1264,8 @@
     /*
       Helpers  to escape a string for HTML rendering.
     */
-    escapeHTML = function(string) {
-      return string.replace(/&(?!\w+)/g, '&amp').replace(/</g, '&lt').replace(/>/g, '&gt').replace(/"/g, '&quot');
+    Helpers.prototype.escapeHTML = function(string) {
+      return string.replace(/&(?!\w+)/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     };
     return Helpers;
   })();

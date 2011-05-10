@@ -97,14 +97,14 @@ class Backbone.Events
     if not @_callbacks
       return @
 
-    if @_callbacks[ev]
+    if @_callbacks[ev]?
       for callback in @_callbacks[ev]
         if callback
-          callback.apply(@, Array::slice.call(options, 1))
+          callback.apply(@, options)
 
     if @_callbacks['all']?
       for callback in @_callbacks['all']
-        callback.apply(@, options)
+        callback.apply(@, arguments)
 
     return @
 
@@ -178,8 +178,6 @@ class Backbone.Model extends Backbone.Events
     # Extract attributes and options.
     return @ if not attrs
     attrs = attrs.attributes if attrs.attributes?
-    now = @attributes
-    escaped = @_escapedAttributes
 
     # Run validation.
     if not options.silent and @validate and not @_performValidation(attrs, options)
@@ -191,9 +189,9 @@ class Backbone.Model extends Backbone.Events
     # Update attributes.
     for attr of attrs
       val = attrs[attr]
-      if not _.isEqual(now[attr], val)
-        now[attr] = val
-        delete escaped[attr]
+      if not _.isEqual(@attributes[attr], val)
+        @attributes[attr] = val
+        delete @_escapedAttributes[attr]
         if not options.silent
           @_changed = true
           @trigger('change:' + attr, @, val, options)
@@ -417,7 +415,6 @@ class Backbone.Collection extends Backbone.Events
       @comparator = options.comparator
       delete options.comparator
 
-    @_boundOnModelEvent = _.bind(@_onModelEvent, @)
     @_reset()
     if models
       @refresh(models, {silent: true})
@@ -474,7 +471,7 @@ class Backbone.Collection extends Backbone.Events
     Get a model from the set by id.
   ###
   get: (id) ->
-    return null if id?
+    return null if not id?
     return @_byId[if id.id? then id.id else id]
 
   ###
@@ -545,14 +542,14 @@ class Backbone.Collection extends Backbone.Events
     has been created on the server, it will be added to the collection.
   ###
   create: (model, options={}) ->
-    collection = this
+    collection = @
     if model instanceof Backbone.Model
       model.collection = collection
     else
       model = new @model(model, {collection: collection})
 
     success = (nextModel, resp) ->
-      coll.add(nextModel)
+      collection.add(nextModel)
       if options.success
         options.success(nextModel, resp)
 
@@ -593,12 +590,14 @@ class Backbone.Collection extends Backbone.Events
     already = @getByCid(model)
     if already?
       throw new Error(["Can't add the same model to a set twice", already.id])
+
     @_byId[model.id] = model
     @_byCid[model.cid] = model
+
     model.collection = @
     index = if @comparator? then @sortedIndex(model, @comparator) else @length
     @models.splice(index, 0, model)
-    model.bind('all', @_boundOnModelEvent)
+    model.bind('all', @_onModelEvent)
     @length++
     if not options.silent
       model.trigger('add', model, @, options)
@@ -618,7 +617,7 @@ class Backbone.Collection extends Backbone.Events
     @length--
     if not options.silent
       model.trigger('remove', model, @, options)
-    model.unbind('all', @_boundOnModelEvent)
+    model.unbind('all', @_onModelEvent)
     return model
 
   ###
@@ -626,7 +625,7 @@ class Backbone.Collection extends Backbone.Events
     Sets need to update their indexes when models change ids. All other
     events simply proxy through.
   ###
-  _onModelEvent: (ev, model) ->
+  _onModelEvent: (ev, model) =>
     if ev is 'change:id'
       delete @_byId[model.previous('id')]
       @_byId[model.id] = model
@@ -714,8 +713,8 @@ class Backbone.Controller extends Backbone.Events
   ###
   _routeToRegExp: (route) ->
     route = route
-        .replace(namedParam, "([^\/]*)")
-        .replace(splatParam, "(.*?)")
+        .replace(@namedParam, "([^\/]*)")
+        .replace(@splatParam, "(.*?)")
     return new RegExp('^' + route + '$')
 
   ###
@@ -724,6 +723,7 @@ class Backbone.Controller extends Backbone.Events
   ###
   _extractParameters: (route, fragment) ->
     return route.exec(fragment).slice(1)
+
 
 ###
   Backbone.History
@@ -736,7 +736,6 @@ class Backbone.History
   constructor: () ->
     @handlers = []
     @fragment = @getFragment()
-    _.bindAll(@, 'checkUrl')
 
   ###
     Cached regex for cleaning hashes.
@@ -753,7 +752,7 @@ class Backbone.History
     Get the cross-browser normalized URL fragment.
   ###
   getFragment: (loc=window.location) ->
-    return loc.hash.replace(hashStrip, '')
+    return loc.hash.replace(@hashStrip, '')
 
   ###
     Start the hash change handling, returning `true` if the current URL matches
@@ -786,7 +785,7 @@ class Backbone.History
     Checks the current URL to see if it has changed, and if it has,
     calls `loadUrl`, normalizing across the hidden iframe.
   ###
-  checkUrl: () ->
+  checkUrl: () =>
     current = @getFragment()
     if current is @fragment and @iframe
       current = @getFragment(@iframe.location)
@@ -818,7 +817,7 @@ class Backbone.History
     a `hashchange` event.
   ###
   saveLocation: (fragment='') ->
-    fragment = fragment.replace(hashStrip, '')
+    fragment = fragment.replace(@hashStrip, '')
     if @fragment is fragment
       return
     window.location.hash = @fragment = fragment
@@ -842,8 +841,8 @@ class Backbone.History
   ###
   _routeToRegExp: (route) ->
     route = route
-      .replace(namedParam, "([^\/]*)")
-      .replace(splatParam, "(.*?)")
+      .replace(@namedParam, "([^\/]*)")
+      .replace(@splatParam, "(.*?)")
     return new RegExp('^' + route + '$')
 
   ###
@@ -852,105 +851,6 @@ class Backbone.History
   ###
   _extractParameters : (route, fragment) ->
     return route.exec(fragment).slice(1)
-
-###
-  Backbone.History
-  ----------------
-
-  Handles cross-browser history management, based on URL hashes. If the
-  browser does not support `onhashchange`, falls back to polling.
-###
-class Backbone.History
-  constructor: () ->
-    @handlers = []
-    @fragment = @getFragment()
-    _.bindAll(@, 'checkUrl')
-
-  ###
-    Cached regex for cleaning hashes.
-  ###
-  hashStrip: /^#*/
-
-  ###
-    The default interval to poll for hash changes, if necessary, is
-    twenty times a second.
-  ###
-  interval: 50
-
-  ###
-    Get the cross-browser normalized URL fragment.
-  ###
-  getFragment: (loc=window.location) ->
-    return loc.hash.replace(hashStrip, '')
-
-  ###
-    Start the hash change handling, returning `true` if the current URL matches
-    an existing route, and `false` otherwise.
-  ###
-  start: () ->
-    docMode = document.documentMode
-    oldIE = $.browser.msie and (not docMode or docMode <= 7)
-    if oldIE
-      @iframe = $('<iframe src="javascript:0" tabindex="-1" />')
-        .hide()
-        .appendTo('body')[0]
-        .contentWindow
-
-    if 'onhashchange' in window and not oldIE
-      $(window).bind('hashchange', @checkUrl)
-    else
-      setInterval(@checkUrl, @interval)
-
-    return @loadUrl()
-
-  ###
-    Add a route to be tested when the hash changes. Routes are matched in the
-    order they are added.
-  ###
-  route: (route, callback) ->
-    @handlers.push({route : route, callback : callback})
-
-  ###
-    Checks the current URL to see if it has changed, and if it has,
-    calls `loadUrl`, normalizing across the hidden iframe.
-  ###
-  checkUrl: () ->
-    current = @getFragment()
-    if current is @fragment and @iframe
-      current = @getFragment(@iframe.location)
-
-    if current is @fragment or current is decodeURIComponent(@fragment)
-      return false
-    if @iframe
-      window.location.hash = @iframe.location.hash = current
-
-    @loadUrl()
-
-  ###
-    Attempt to load the current URL fragment. If a route succeeds with a
-    match, returns `true`. If no defined routes matches the fragment,
-    returns `false`.
-  ###
-  loadUrl: () ->
-    fragment = @fragment = @getFragment()
-    return _.any(@handlers, (handler) ->
-      if handler.route.test(fragment)
-        handler.callback(fragment)
-        return true
-    )
-
-  ###
-    Save a fragment into the hash history. You are responsible for properly
-    URL-encoding the fragment in advance. This does not trigger
-    a `hashchange` event.
-  ###
-  saveLocation: (fragment='') ->
-    fragment = fragment.replace(hashStrip, '')
-    return if @fragment is fragment
-    window.location.hash = @fragment = fragment
-    if @iframe and fragment isnt @getFragment(@iframe.location)
-      @iframe.document.open().close()
-      @iframe.location.hash = fragment
 
 
 ###
@@ -961,7 +861,7 @@ class Backbone.History
   if an existing element is not provided...
 ###
 class Backbone.View extends Backbone.Events
-  constuctor: (options={}) ->
+  constructor: (options={}) ->
     @_configure(options)
     @_ensureElement()
     @delegateEvents()
@@ -972,7 +872,7 @@ class Backbone.View extends Backbone.Events
     This should be prefered to global lookups, if you're dealing with
     a specific view.
   ###
-  selectorDelegate = (selector) ->
+  $: (selector) ->
     return $(selector, @el)
 
   ###
@@ -986,9 +886,6 @@ class Backbone.View extends Backbone.Events
   tagName: 'div'
 
   ###
-    Attach the `selectorDelegate`  as the `$` property.
-    $       : selectorDelegate,
-
     Initialize is an empty  by default. Override it with your own
     initialization logic.
   ###
@@ -1014,7 +911,7 @@ class Backbone.View extends Backbone.Events
     For small amounts of DOM Elements, where a full-blown template isn't
     needed, use **make** to manufacture elements, one at a time.
 
-          el = @make('li', {'class': 'row'}, @model.escape('title'))
+      el = @make('li', {'class': 'row'}, @model.escape('title'))
   ###
   make: (tagName, attributes, content) ->
     el = document.createElement(tagName)
@@ -1026,11 +923,10 @@ class Backbone.View extends Backbone.Events
     Set callbacks, where `@callbacks` is a hash of
 
     *{"event selector": "callback"}*
-
-        {
-          'mousedown .title':  'edit',
-          'click .button':     'save'
-        }
+      {
+        'mousedown .title':  'edit',
+        'click .button':     'save'
+      }
 
     pairs. Callbacks will be bound to the view, with `@` set properly.
     Uses event delegation for efficiency.
@@ -1043,7 +939,7 @@ class Backbone.View extends Backbone.Events
     $(@el).unbind()
     for key of events
       methodName = events[key]
-      match = key.match(eventSplitter)
+      match = key.match(@eventSplitter)
       [eventName, selector] = [match[1], match[2]]
       method = _.bind(@[methodName], @)
       if selector is ''
@@ -1076,6 +972,7 @@ class Backbone.View extends Backbone.Events
     attrs["class"] = @className if @className
     @el = @make(@tagName, attrs)
 
+
 ###
   Backbone.sync
   -------------
@@ -1098,6 +995,15 @@ class Backbone.View extends Backbone.Events
 ###
 class Backbone.sync
   constructor: (method, model, success, error) ->
+    ###
+      Map from CRUD to HTTP for our default `Backbone.sync` implementation.
+    ###
+    methodMap =
+      create: 'POST'
+      update: 'PUT'
+      delete: 'DELETE'
+      read  : 'GET'
+
     type = methodMap[method]
     modelJSON = JSON.stringify(model.toJSON()) if method in ['update', 'create']
 
@@ -1138,14 +1044,7 @@ class Backbone.sync
     ###
     $.ajax(params)
 
-  ###
-    Map from CRUD to HTTP for our default `Backbone.sync` implementation.
-  ###
-  methodMap:
-    'create': 'POST'
-    'update': 'PUT'
-    'delete': 'DELETE'
-    'read'  : 'GET'
+
 
 ###
   Backbone.Helpers
@@ -1165,7 +1064,7 @@ class Backbone.Helpers
   ###
     Wrap an optional error callback with a fallback error event.
   ###
-  wrapError = (onError, model, options) ->
+  wrapError: (onError, model, options) ->
     return (resp) ->
       if onError
         onError(model, resp)
@@ -1175,9 +1074,9 @@ class Backbone.Helpers
   ###
     Helpers  to escape a string for HTML rendering.
   ###
-  escapeHTML = (string) ->
+  escapeHTML: (string) ->
     return string
-      .replace(/&(?!\w+)/g, '&amp')
-      .replace(/</g, '&lt')
-      .replace(/>/g, '&gt')
-      .replace(/"/g, '&quot')
+      .replace(/&(?!\w+)/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
