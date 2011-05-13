@@ -174,7 +174,6 @@ class Backbone.Model extends Backbone.Events
     choose to silence it.
   ###
   set: (attrs, options={}) ->
-
     # Extract attributes and options.
     return @ if not attrs
     attrs = attrs.attributes if attrs.attributes?
@@ -357,8 +356,7 @@ class Backbone.Model extends Backbone.Events
     view need to be updated and/or what attributes need to be persisted to
     the server.
   ###
-  changedAttributes: (now) ->
-    now or= @attributes
+  changedAttributes: (now=@attributes) ->
     old = @_previousAttributes
     changed = false
     for attr of now

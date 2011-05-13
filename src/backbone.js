@@ -418,7 +418,9 @@
     */
     Model.prototype.changedAttributes = function(now) {
       var attr, changed, old;
-      now || (now = this.attributes);
+      if (now == null) {
+        now = this.attributes;
+      }
       old = this._previousAttributes;
       changed = false;
       for (attr in now) {
